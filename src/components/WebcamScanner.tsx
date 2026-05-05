@@ -33,6 +33,11 @@ export default function WebcamScanner({ onScan, onRecognize, matcher, mode }: We
 
         // Sync canvas size with video
         const displaySize = { width: video.videoWidth, height: video.videoHeight };
+        
+        if (displaySize.width === 0 || displaySize.height === 0) {
+          return;
+        }
+
         if (canvas.width !== displaySize.width) {
           canvas.width = displaySize.width;
           canvas.height = displaySize.height;

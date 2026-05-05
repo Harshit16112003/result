@@ -20,11 +20,31 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return data.keys().hasAll(['name', 'embeddings', 'createdAt']) &&
+      return data.keys().hasAll(['name', 'face_descriptor', 'createdAt']) &&
              data.keys().size() == 3 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.embeddings is list && data.embeddings.size() > 0 && data.embeddings.size() <= 10 &&
+             data.face_descriptor is list && data.face_descriptor.size() == 128 &&
              data.createdAt is timestamp;
+    }
+
+    function isValidAttendanceCreate(data) {
+      return data.keys().hasAll(['userId', 'userName', 'checkInAt']) &&
+             data.keys().size() == 3 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() < 100 &&
+             data.checkInAt is timestamp &&
+             data.checkInAt == request.time;
+    }
+
+    function isValidAttendanceUpdate(data) {
+      return data.keys().hasAll(['userId', 'userName', 'checkInAt', 'checkOutAt', 'durationHours']) &&
+             data.keys().size() == 5 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() < 100 &&
+             data.checkInAt is timestamp &&
+             data.checkOutAt is timestamp &&
+             data.checkOutAt == request.time &&
+             data.durationHours is number;
     }
 
     match /users/{userId} {
@@ -38,6 +58,19 @@ service cloud.firestore {
                     incoming().createdAt == resource.data.createdAt;
                     
       allow delete: if false; // Only admin via console for now
+    }
+
+    match /attendance/{attendanceId} {
+      allow list, get: if isSignedIn();
+      
+      allow create: if isSignedIn() && isValidId(attendanceId) && isValidAttendanceCreate(incoming());
+      
+      allow update: if isSignedIn() && isValidId(attendanceId) && isValidAttendanceUpdate(incoming()) &&
+                    incoming().userId == resource.data.userId &&
+                    incoming().checkInAt == resource.data.checkInAt &&
+                    incoming().diff(resource.data).affectedKeys().hasOnly(['checkOutAt', 'durationHours']);
+                    
+      allow delete: if false; // No deleting attendance records
     }
   }
 }

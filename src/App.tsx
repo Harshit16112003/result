@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, UserPlus, ScanEye, Users as UsersIcon, Settings, LayoutGrid, Info, Zap, LogOut, Activity, Database, AlertTriangle, Key, RefreshCw } from 'lucide-react';
+import { Shield, UserPlus, ScanEye, Users as UsersIcon, Settings, LayoutGrid, Info, Zap, LogOut, Activity, Database, AlertTriangle, Key, RefreshCw, Clock, CheckCircle } from 'lucide-react';
 import WebcamScanner from './components/WebcamScanner';
 import { loadModels, createMatcher } from './lib/faceService';
 import { useUsers, registerUser } from './hooks/useUsers';
-import { auth, googleProvider } from './lib/firebase';
-import { signInWithPopup, signOut } from 'firebase/auth';
+import { useAttendance, processAttendance } from './hooks/useAttendance';
+import { auth } from './lib/firebase';
+import { signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
+import { UserFaceData } from './types';
 
-type Screen = 'dashboard' | 'register' | 'identify' | 'users';
+type Screen = 'dashboard' | 'register' | 'identify' | 'users' | 'verify' | 'attendance' | 'records';
 
 interface LogEntry {
   id: string;
-  type: 'match' | 'anomaly';
+  type: 'match' | 'anomaly' | 'verified' | 'denied';
   subject: string;
   time: string;
   confidence: number;
@@ -21,11 +23,15 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('dashboard');
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const { users, loading: usersLoading, authenticated } = useUsers();
+  const { records: attendanceRecords } = useAttendance();
   const [matcher, setMatcher] = useState<any>(null);
   const [registrationName, setRegistrationName] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const lastLoggedRef = useRef<{name: string, time: number}>({ name: '', time: 0 });
+  const [targetUser, setTargetUser] = useState<UserFaceData | null>(null);
+  const [verificationResult, setVerificationResult] = useState<{success: boolean, score: number} | null>(null);
+  const [attendanceMessage, setAttendanceMessage] = useState<{message: string, type: 'in' | 'out', name: string} | null>(null);
 
   useEffect(() => {
     loadModels().then(success => {
@@ -46,12 +52,16 @@ export default function App() {
     if (isLoggingIn) return;
     setIsLoggingIn(true);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, provider);
     } catch (error: any) {
       if (error.code === 'auth/cancelled-popup-request') {
         console.log('Login request overridden by a newer one.');
       } else if (error.code === 'auth/popup-closed-by-user') {
         console.log('Login popup closed by user.');
+      } else if (error.message && error.message.includes('Pending promise was never set')) {
+        console.log('Ignored internal firebase assertion error.');
       } else {
         console.error('Login error:', error);
         alert('Authentication failed: ' + error.message);
@@ -81,6 +91,79 @@ export default function App() {
     };
     
     setLogs(prev => [newLog, ...prev].slice(0, 20));
+  };
+
+  const handleVerificationRecognize = (name: string, distance: number) => {
+    if (!targetUser) return;
+    
+    const confidence = 1 - distance;
+    const isMatch = name === targetUser.name && confidence > 0.6;
+    
+    setVerificationResult({ success: isMatch, score: confidence });
+    
+    // Log if it's a significant event (match or strong mismatch)
+    const now = Date.now();
+    if (now - lastLoggedRef.current.time > 10000) {
+      lastLoggedRef.current = { name: `verify_${targetUser.name}`, time: now };
+      
+      const newLog: LogEntry = {
+        id: Math.random().toString(36).substr(2, 9),
+        type: isMatch ? 'verified' : 'denied',
+        subject: targetUser.name,
+        time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+        confidence
+      };
+      setLogs(prev => [newLog, ...prev].slice(0, 20));
+    }
+  };
+
+  const startVerification = (user: UserFaceData) => {
+    setTargetUser(user);
+    setVerificationResult(null);
+    setScreen('verify');
+  };
+
+  const handleAttendanceRecognize = async (name: string, distance: number) => {
+    const confidence = 1 - distance;
+    if (name === 'unknown' || confidence <= 0.6) return; // Need high confidence for attendance
+
+    const now = Date.now();
+    // Throttle attendance checks for the same person (10 seconds)
+    if (lastLoggedRef.current.name === `attendance_${name}` && now - lastLoggedRef.current.time < 10000) {
+      return; 
+    }
+    lastLoggedRef.current = { name: `attendance_${name}`, time: now };
+
+    const user = users.find(u => u.name === name);
+    if (!user) return;
+
+    try {
+      const result = await processAttendance(user.id, user.name);
+      
+      const isCheckIn = result.status === 'checked_in';
+      setAttendanceMessage({ 
+        message: isCheckIn ? 'CLOCK_IN REGISTERED' : `CLOCK_OUT (${result.duration?.toFixed(2)}h)`, 
+        type: isCheckIn ? 'in' : 'out', 
+        name: user.name 
+      });
+
+      // Also add to logs
+      const newLog: LogEntry = {
+        id: Math.random().toString(36).substr(2, 9),
+        type: 'match',
+        subject: `${user.name} [${isCheckIn ? 'IN' : 'OUT'}]`,
+        time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+        confidence
+      };
+      setLogs(prev => [newLog, ...prev].slice(0, 20));
+
+      // Hide message after 5 seconds
+      setTimeout(() => {
+        setAttendanceMessage(null);
+      }, 5000);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleRegistrationScan = async (descriptor: Float32Array) => {
@@ -196,6 +279,24 @@ export default function App() {
               </div>
 
               <div className="space-y-2.5">
+                <label className="text-[9px] uppercase tracking-wider opacity-50 block">Quick Actions</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={() => setScreen('users')}
+                    className={`p-2 border rounded-md text-[9px] font-mono uppercase tracking-widest text-center transition-all ${screen === 'users' ? 'border-primary text-primary bg-primary/10' : 'border-border text-slate-400 hover:border-slate-500 hover:text-white'}`}
+                  >
+                    Directory
+                  </button>
+                  <button 
+                    onClick={() => setScreen('records')}
+                    className={`p-2 border rounded-md text-[9px] font-mono uppercase tracking-widest text-center transition-all ${screen === 'records' ? 'border-primary text-primary bg-primary/10' : 'border-border text-slate-400 hover:border-slate-500 hover:text-white'}`}
+                  >
+                    Attendance
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2.5 mt-4">
                 <label className="text-[9px] uppercase tracking-wider opacity-50 block">Identity Token</label>
                 <input 
                   type="text" 
@@ -239,9 +340,9 @@ export default function App() {
         {/* Center: Main Recognition Feed */}
         <section className="flex-1 bg-surface border border-border rounded-lg relative overflow-hidden flex flex-col">
           <div className="absolute top-4 left-4 z-10 flex gap-2">
-            <span className={`px-2 py-0.5 border text-[9px] font-mono rounded uppercase flex items-center gap-1.5 ${screen === 'identify' ? 'bg-red-600/10 text-red-500 border-red-500/30' : 'bg-slate-800 text-slate-400 border-border'}`}>
-              <div className={`w-1 h-1 rounded-full ${screen === 'identify' ? 'bg-red-500 animate-bounce' : 'bg-slate-500'}`} />
-              {screen === 'identify' ? 'REC Live' : 'Standby'}
+            <span className={`px-2 py-0.5 border text-[9px] font-mono rounded uppercase flex items-center gap-1.5 ${screen === 'identify' || screen === 'attendance' ? 'bg-red-600/10 text-red-500 border-red-500/30' : 'bg-slate-800 text-slate-400 border-border'}`}>
+              <div className={`w-1 h-1 rounded-full ${screen === 'identify' || screen === 'attendance' ? 'bg-red-500 animate-bounce' : 'bg-slate-500'}`} />
+              {screen === 'identify' || screen === 'attendance' ? 'REC Live' : 'Standby'}
             </span>
             <span className="px-2 py-0.5 bg-slate-900 border border-border text-[9px] font-mono rounded uppercase text-slate-400">
               Cam_01_Frontal
@@ -272,6 +373,210 @@ export default function App() {
                 >
                   <WebcamScanner mode="register" onScan={handleRegistrationScan} />
                 </motion.div>
+              ) : screen === 'verify' && targetUser ? (
+                <motion.div
+                  key="verify"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="w-full h-full flex flex-col items-center p-4"
+                >
+                  <div className="text-center mb-4">
+                    <h2 className="text-xl font-display font-bold">1:1 Biometric Verification</h2>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Target Subject: <span className="text-primary font-mono font-bold">{targetUser.name}</span></p>
+                  </div>
+                  
+                  <div className="relative w-full max-w-2xl flex-1 rounded-xl overflow-hidden border border-border shadow-2xl">
+                    <WebcamScanner mode="recognize" matcher={matcher} onRecognize={handleVerificationRecognize} />
+                    
+                    <AnimatePresence>
+                      {verificationResult && (
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.9 }}
+                          className={`absolute top-6 left-1/2 -translate-x-1/2 px-8 py-3 rounded-full border shadow-2xl backdrop-blur-md z-30 flex items-center gap-3 ${verificationResult.success ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-rose-500/20 border-rose-500 text-rose-400'}`}
+                        >
+                          {verificationResult.success ? <Shield size={18} /> : <AlertTriangle size={18} />}
+                          <span className="font-mono font-bold uppercase text-xs tracking-widest">
+                            {verificationResult.success ? 'IDENTITY VERIFIED' : 'ACCESS DENIED'}
+                          </span>
+                          <span className="opacity-50 font-mono text-[10px]">{(verificationResult.score * 100).toFixed(1)}%</span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="mt-6 flex flex-col items-center gap-2">
+                    <p className="text-[9px] text-slate-500 text-center max-w-md">
+                      Comparing live biometric markers against index <span className="font-mono text-slate-300">0x{targetUser.id.slice(-8)}</span>. 
+                      Threshold: 0.60
+                    </p>
+                    <button 
+                      onClick={() => setScreen('users')}
+                      className="mt-2 px-4 py-1.5 border border-border rounded text-[10px] uppercase font-bold hover:bg-white/5 transition-all text-slate-400"
+                    >
+                      Return to Directory
+                    </button>
+                  </div>
+                </motion.div>
+              ) : screen === 'users' ? (
+                <motion.div
+                  key="users-dir"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="w-full h-full p-6 overflow-y-auto"
+                >
+                  <h2 className="text-2xl font-display font-bold mb-6 flex items-center gap-3">
+                    <UsersIcon className="text-primary" />
+                    Subject Directory
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {users.map(user => (
+                      <div key={user.id} className="bg-slate-900/50 border border-border rounded-xl p-6 hover:border-primary/30 transition-all group">
+                        <div className="flex items-center gap-4">
+                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 border border-border flex items-center justify-center text-xl font-bold shadow-lg">
+                            {user.name.charAt(0)}
+                          </div>
+                          <div>
+                            <div className="text-lg font-bold group-hover:text-primary transition-colors">{user.name}</div>
+                            <div className="text-xs font-mono opacity-40 uppercase">ID: 0x{user.id}</div>
+                            <div className="mt-2 flex gap-2">
+                              <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[8px] font-mono border border-emerald-500/20 rounded uppercase">Verified</span>
+                              <span className="px-2 py-0.5 bg-slate-800 text-slate-400 text-[8px] font-mono border border-border rounded uppercase">Active</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-6 pt-4 border-t border-slate-800 flex justify-between items-center">
+                          <span className="text-[10px] font-mono opacity-40 uppercase italic">Registered {new Date(user.createdAt?.seconds * 1000).toLocaleDateString()}</span>
+                          <button 
+                            onClick={() => startVerification(user)}
+                            className="px-4 py-2 bg-primary text-black text-[10px] uppercase font-bold hover:bg-primary/90 transition-all rounded"
+                          >
+                            Verify Identity
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              ) : screen === 'attendance' ? (
+                <motion.div 
+                  key="attendance"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="w-full h-full flex flex-col items-center justify-center p-4"
+                >
+                  <div className="text-center mb-6">
+                    <h2 className="text-2xl font-display font-bold flex items-center justify-center gap-2 text-primary">
+                      <Clock size={24} />
+                      Attendance Kiosk
+                    </h2>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-2">Scan biometric profile to clock in/out</p>
+                  </div>
+                  
+                  <div className="relative w-full max-w-2xl flex-1 rounded-xl overflow-hidden border border-border shadow-2xl">
+                    <WebcamScanner mode="recognize" matcher={matcher} onRecognize={handleAttendanceRecognize} />
+                    
+                    <AnimatePresence>
+                      {attendanceMessage && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.9 }}
+                          className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-12 py-8 rounded-2xl border-2 shadow-[0_0_50px_rgba(0,0,0,0.5)] backdrop-blur-xl z-30 flex flex-col items-center gap-3 ${attendanceMessage.type === 'in' ? 'bg-emerald-500/20 border-emerald-500' : 'bg-amber-500/20 border-amber-500'}`}
+                        >
+                          <CheckCircle size={48} className={attendanceMessage.type === 'in' ? 'text-emerald-400' : 'text-amber-400'} />
+                          <span className={`font-mono font-bold text-2xl uppercase tracking-widest ${attendanceMessage.type === 'in' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {attendanceMessage.message}
+                          </span>
+                          <span className="text-white font-bold text-xl">{attendanceMessage.name}</span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="mt-6 flex flex-col items-center gap-2">
+                    <p className="text-[9px] text-slate-500 text-center max-w-md">
+                      System automatically determines check-in or check-out based on your current status.
+                    </p>
+                    <button 
+                      onClick={() => setScreen('dashboard')}
+                      className="mt-2 px-4 py-1.5 border border-border rounded text-[10px] uppercase font-bold hover:bg-white/5 transition-all text-slate-400"
+                    >
+                      Return to Dashboard
+                    </button>
+                  </div>
+                </motion.div>
+              ) : screen === 'records' ? (
+                <motion.div
+                  key="records-dir"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="w-full h-full p-6 overflow-y-auto"
+                >
+                  <h2 className="text-2xl font-display font-bold mb-6 flex items-center gap-3">
+                    <Clock className="text-primary" />
+                    Attendance Records
+                  </h2>
+                  
+                  <div className="bg-slate-900/50 border border-border rounded-xl overflow-hidden shadow-lg">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm whitespace-nowrap">
+                        <thead className="bg-[#0d0f14] border-b border-border text-[9px] uppercase tracking-widest font-mono text-slate-400">
+                          <tr>
+                            <th className="px-6 py-4 font-medium">Subject</th>
+                            <th className="px-6 py-4 font-medium">Date</th>
+                            <th className="px-6 py-4 font-medium">Check-In</th>
+                            <th className="px-6 py-4 font-medium">Check-Out</th>
+                            <th className="px-6 py-4 font-medium">Duration</th>
+                            <th className="px-6 py-4 font-medium">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border text-xs">
+                          {attendanceRecords.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="px-6 py-12 text-center text-slate-500 italic">
+                                No attendance records found.
+                              </td>
+                            </tr>
+                          ) : (
+                            attendanceRecords.map(record => (
+                              <tr key={record.id} className="hover:bg-white/[0.02] transition-colors">
+                                <td className="px-6 py-4 font-bold text-slate-200">
+                                  {record.userName}
+                                  <div className="text-[8px] font-mono opacity-40 uppercase">UID: 0x{record.userId.slice(-6)}</div>
+                                </td>
+                                <td className="px-6 py-4 font-mono opacity-70">
+                                  {record.checkInAt ? new Date(record.checkInAt.seconds * 1000).toLocaleDateString('en-GB') : '-'}
+                                </td>
+                                <td className="px-6 py-4 font-mono text-emerald-400">
+                                  {record.checkInAt ? new Date(record.checkInAt.seconds * 1000).toLocaleTimeString('en-GB', {hour: '2-digit', minute:'2-digit'}) : '-'}
+                                </td>
+                                <td className="px-6 py-4 font-mono text-amber-400">
+                                  {record.checkOutAt ? new Date(record.checkOutAt.seconds * 1000).toLocaleTimeString('en-GB', {hour: '2-digit', minute:'2-digit'}) : '-'}
+                                </td>
+                                <td className="px-6 py-4 font-mono opacity-70">
+                                  {record.durationHours ? `${record.durationHours.toFixed(2)}h` : '-'}
+                                </td>
+                                <td className="px-6 py-4">
+                                  {record.checkOutAt ? (
+                                    <span className="px-2 py-0.5 bg-slate-800 text-slate-400 text-[8px] font-mono border border-border rounded uppercase">Completed</span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[8px] font-mono border border-emerald-500/30 rounded uppercase animate-pulse">Active</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </motion.div>
               ) : (
                 <div className="text-center space-y-6 max-w-sm">
                   <div className="w-48 h-48 border-2 border-dashed border-border rounded-full flex items-center justify-center mx-auto relative group">
@@ -282,12 +587,27 @@ export default function App() {
                     <h3 className="text-sm font-mono uppercase tracking-[0.2em] text-slate-500">Awaiting Signal...</h3>
                     <p className="text-[10px] text-slate-600 uppercase">Biometric protocols initialized and ready</p>
                   </div>
-                  <button 
-                    onClick={() => setScreen('identify')}
-                    className="px-8 py-3 bg-primary text-black font-mono font-bold text-xs uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(6,182,212,0.2)]"
-                  >
-                    Initiate Stream
-                  </button>
+                  <div className="flex gap-4 justify-center">
+                    <button 
+                      onClick={() => setScreen('identify')}
+                      className="px-8 py-3 bg-primary text-black font-mono font-bold text-xs uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(6,182,212,0.2)]"
+                    >
+                      Initiate Stream
+                    </button>
+                    <button 
+                      onClick={() => setScreen('users')}
+                      className="px-8 py-3 border border-border text-white font-mono font-bold text-xs uppercase tracking-widest hover:bg-white/5 transition-all"
+                    >
+                      Directory
+                    </button>
+                    <button 
+                      onClick={() => setScreen('attendance')}
+                      className="px-8 py-3 bg-indigo-500/20 border border-indigo-500/50 text-indigo-400 font-mono font-bold text-xs uppercase tracking-widest hover:bg-indigo-500/30 transition-all shadow-[0_0_20px_rgba(99,102,241,0.2)] flex items-center gap-2"
+                    >
+                      <Clock size={16} />
+                      Attendance Kiosk
+                    </button>
+                  </div>
                 </div>
               )}
             </AnimatePresence>
@@ -349,17 +669,19 @@ export default function App() {
                     className="p-3 border-b border-border/50 flex flex-col gap-1.5 hover:bg-slate-900/40 transition-colors"
                   >
                     <div className="flex justify-between items-center">
-                      <span className={`text-[10px] font-bold uppercase tracking-tight ${log.type === 'match' ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {log.type === 'match' ? 'MATCH FOUND' : 'ANOMALY'}
+                      <span className={`text-[10px] font-bold uppercase tracking-tight ${
+                        log.type === 'match' || log.type === 'verified' ? 'text-emerald-400' : 'text-red-400'
+                      }`}>
+                        {log.type === 'match' ? 'MATCH FOUND' : log.type === 'verified' ? 'BIOMETRIC VERIFIED' : log.type === 'denied' ? 'VERIFICATION FAILED' : 'ANOMALY'}
                       </span>
                       <span className="text-[8px] font-mono opacity-30">{log.time}</span>
                     </div>
                     <div className="text-[11px] font-medium text-slate-200">
-                      Subject: <span className={log.type === 'anomaly' ? 'italic underline decoration-red-500/50' : ''}>{log.subject}</span>
+                      Subject: <span className={log.type === 'anomaly' || log.type === 'denied' ? 'italic underline decoration-red-500/50' : ''}>{log.subject}</span>
                     </div>
                     <div className="w-full bg-slate-800 h-1 mt-1 rounded-full overflow-hidden">
                       <div 
-                        className={`h-full transition-all duration-500 ${log.type === 'match' ? 'bg-primary' : 'bg-red-500'}`} 
+                        className={`h-full transition-all duration-500 ${log.type === 'match' || log.type === 'verified' ? 'bg-primary' : 'bg-red-500'}`} 
                         style={{ width: `${log.confidence * 100}%` }}
                       ></div>
                     </div>

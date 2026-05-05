@@ -9,14 +9,11 @@
           "type": "string",
           "description": "User's full name"
         },
-        "embeddings": {
+        "face_descriptor": {
           "type": "array",
-          "description": "Array of face embeddings (Float32Array converted to array)",
+          "description": "Face embedding (128 floats)",
           "items": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            }
+            "type": "number"
           }
         },
         "createdAt": {
@@ -25,13 +22,42 @@
           "description": "Registration timestamp"
         }
       },
-      "required": ["name", "embeddings", "createdAt"]
+      "required": ["name", "face_descriptor", "createdAt"]
+    },
+    "Attendance": {
+      "title": "Attendance Session",
+      "description": "A single attendance session with check-in and check-out times",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "userName": {
+          "type": "string"
+        },
+        "checkInAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "checkOutAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "durationHours": {
+          "type": "number"
+        }
+      },
+      "required": ["userId", "userName", "checkInAt"]
     }
   },
   "firestore": {
     "/users": {
       "schema": "User",
       "description": "Collection of registered users"
+    },
+    "/attendance": {
+      "schema": "Attendance",
+      "description": "Collection of attendance records"
     }
   }
 }

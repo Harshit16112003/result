@@ -60,10 +60,14 @@ export function useUsers() {
     const path = 'users';
     const q = query(collection(db, path));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const usersData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as UserFaceData[];
+      const usersData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          embeddings: [data.face_descriptor] // Reconstruct expected format
+        };
+      }) as UserFaceData[];
       setUsers(usersData);
       setLoading(false);
     }, (error) => {
@@ -80,10 +84,10 @@ export function useUsers() {
 export async function registerUser(name: string, descriptor: Float32Array) {
   const path = 'users';
   try {
-    const embedding = Array.from(descriptor);
+    const descriptorArray = Array.from(descriptor);
     await addDoc(collection(db, path), {
       name,
-      embeddings: [embedding],
+      face_descriptor: descriptorArray, // Store as flat array
       createdAt: serverTimestamp()
     });
     return { success: true };
