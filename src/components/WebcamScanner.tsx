@@ -43,66 +43,77 @@ export default function WebcamScanner({ onScan, onRecognize, matcher, mode }: We
           canvas.height = displaySize.height;
         }
 
-        const detections = await faceapi
-          .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
-          .withFaceLandmarks()
-          .withFaceDescriptors();
+        try {
+          const detections = await faceapi
+            .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptors();
 
-        const resizedDetections = faceapi.resizeResults(detections, displaySize);
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          
-          resizedDetections.forEach((detection) => {
-            const { x, y, width, height } = detection.detection.box;
+          const resizedDetections = faceapi.resizeResults(detections, displaySize);
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             
-            // Draw custom bounding box
-            const isMatch = mode === 'recognize' && matcher && matcher.findBestMatch(detection.descriptor).label !== 'unknown';
-            const accentColor = isMatch ? '#06b6d4' : '#ef4444'; // cyan or red
-            
-            ctx.strokeStyle = `${accentColor}cc`;
-            ctx.lineWidth = 2;
-            ctx.strokeRect(x, y, width, height);
-            
-            // Heavy Corners
-            ctx.fillStyle = accentColor;
-            const s = 12;
-            const t = 4;
-            // Top Left
-            ctx.fillRect(x - 1, y - 1, s, t);
-            ctx.fillRect(x - 1, y - 1, t, s);
-            // Top Right
-            ctx.fillRect(x + width - s + 1, y - 1, s, t);
-            ctx.fillRect(x + width - t + 1, y - 1, t, s);
-            // Bottom Left
-            ctx.fillRect(x - 1, y + height - t + 1, s, t);
-            ctx.fillRect(x - 1, y + height - s + 1, t, s);
-            // Bottom Right
-            ctx.fillRect(x + width - s + 1, y + height - t + 1, s, t);
-            ctx.fillRect(x + width - t + 1, y + height - s + 1, t, s);
-
-            if (mode === 'recognize' && matcher) {
-              const bestMatch = matcher.findBestMatch(detection.descriptor);
-              const name = bestMatch.label;
-              const distance = bestMatch.distance;
+            resizedDetections.forEach((detection) => {
+              const { x, y, width, height } = detection.detection.box;
               
-              setDetectedFace({ name, score: 1 - distance });
-
-              // Draw label background
+              if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) return;
+              
+              // Draw custom bounding box
+              const isMatch = mode === 'recognize' && matcher && matcher.findBestMatch(detection.descriptor).label !== 'unknown';
+              const accentColor = isMatch ? '#06b6d4' : '#ef4444'; // cyan or red
+              
+              ctx.strokeStyle = `${accentColor}cc`;
+              ctx.lineWidth = 2;
+              ctx.strokeRect(x, y, width, height);
+              
+              // Heavy Corners
               ctx.fillStyle = accentColor;
-              ctx.fillRect(x, y - 24, name.length * 10 + 60, 24);
-              
-              // Draw text
-              ctx.fillStyle = '#000';
-              ctx.font = 'bold 10px JetBrains Mono';
-              ctx.fillText(`ID: ${name.toUpperCase()} [${(1 - distance).toFixed(3)}]`, x + 6, y - 8);
-              
-              if (onRecognize) onRecognize(name, distance);
+              const s = 12;
+              const t = 4;
+              // Top Left
+              ctx.fillRect(x - 1, y - 1, s, t);
+              ctx.fillRect(x - 1, y - 1, t, s);
+              // Top Right
+              ctx.fillRect(x + width - s + 1, y - 1, s, t);
+              ctx.fillRect(x + width - t + 1, y - 1, t, s);
+              // Bottom Left
+              ctx.fillRect(x - 1, y + height - t + 1, s, t);
+              ctx.fillRect(x - 1, y + height - s + 1, t, s);
+              // Bottom Right
+              ctx.fillRect(x + width - s + 1, y + height - t + 1, s, t);
+              ctx.fillRect(x + width - t + 1, y + height - s + 1, t, s);
+
+              if (mode === 'recognize' && matcher) {
+                const bestMatch = matcher.findBestMatch(detection.descriptor);
+                const name = bestMatch.label;
+                const distance = bestMatch.distance;
+                
+                setDetectedFace({ name, score: 1 - distance });
+
+                // Draw label background
+                ctx.fillStyle = accentColor;
+                ctx.fillRect(x, y - 24, name.length * 10 + 60, 24);
+                
+                // Draw text
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 10px JetBrains Mono';
+                ctx.fillText(`ID: ${name.toUpperCase()} [${(1 - distance).toFixed(3)}]`, x + 6, y - 8);
+                
+                if (onRecognize) onRecognize(name, distance);
+              }
+            });
+            
+            if (resizedDetections.length === 0) {
+              setDetectedFace(null);
             }
-          });
-          
-          if (resizedDetections.length === 0) {
-            setDetectedFace(null);
+          }
+        } catch (error: any) {
+          if (error.message && error.message.includes('Box.constructor')) {
+            // Ignore intermittent NaN box issues from face-api.js during video resize/loading
+            console.debug('Ignored faceapi invalid box error');
+          } else {
+            console.error(error);
           }
         }
       }
@@ -115,15 +126,31 @@ export default function WebcamScanner({ onScan, onRecognize, matcher, mode }: We
   const handleCapture = async () => {
     if (webcamRef.current && webcamRef.current.video && onScan) {
       const video = webcamRef.current.video;
-      const detections = await faceapi
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks()
-        .withFaceDescriptor();
+      
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        alert("Camera not ready. Please try again in a moment.");
+        return;
+      }
 
-      if (detections && onScan) {
-        onScan(detections.descriptor);
-      } else {
-        alert("No face detected. Please look clearly at the camera.");
+      try {
+        const detections = await faceapi
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (detections && onScan) {
+          onScan(detections.descriptor);
+        } else {
+          alert("No face detected. Please look clearly at the camera.");
+        }
+      } catch (error: any) {
+        if (error.message && error.message.includes('Box.constructor')) {
+          alert("Detection glitch. Please make sure you are in good lighting and try again.");
+          console.debug('Ignored faceapi invalid box error on capture', error);
+        } else {
+          console.error(error);
+          alert("An error occurred during capture: " + error.message);
+        }
       }
     }
   };
