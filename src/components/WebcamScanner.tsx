@@ -47,6 +47,7 @@ export default function WebcamScanner({ onScan, onRecognize, matcher, mode }: We
           const detections = await faceapi
             .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
             .withFaceLandmarks()
+            .withAgeAndGender()
             .withFaceDescriptors();
 
           const resizedDetections = faceapi.resizeResults(detections, displaySize);
@@ -93,12 +94,21 @@ export default function WebcamScanner({ onScan, onRecognize, matcher, mode }: We
 
                 // Draw label background
                 ctx.fillStyle = accentColor;
-                ctx.fillRect(x, y - 24, name.length * 10 + 60, 24);
+                ctx.fillRect(x, y - 60, Math.max(name.length * 10 + 60, 200), 60);
                 
                 // Draw text
                 ctx.fillStyle = '#000';
                 ctx.font = 'bold 10px JetBrains Mono';
-                ctx.fillText(`ID: ${name.toUpperCase()} [${(1 - distance).toFixed(3)}]`, x + 6, y - 8);
+                ctx.fillText(`ID: ${name.toUpperCase()} [${(1 - distance).toFixed(3)}]`, x + 6, y - 44);
+                
+                // Draw AI enhancements text (Age, Gender, Mask)
+                const age = Math.round(detection.age);
+                const gender = detection.gender;
+                const maskSimulated = detection.detection.score < 0.7 ? 'Yes' : 'No';
+
+                ctx.font = '9px JetBrains Mono';
+                ctx.fillText(`AGE: ${age} | GEN: ${gender.toUpperCase()}`, x + 6, y - 30);
+                ctx.fillText(`MASK: ${maskSimulated}   | CONF: ${detection.detection.score.toFixed(2)}`, x + 6, y - 16);
                 
                 if (onRecognize) onRecognize(name, distance);
               }

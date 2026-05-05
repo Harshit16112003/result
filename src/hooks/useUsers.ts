@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { UserFaceData } from '../types';
 
@@ -79,6 +79,17 @@ export function useUsers() {
   }, [authenticated]);
 
   return { users, loading, authenticated };
+}
+
+export async function deleteUser(userId: string) {
+  const path = `users/${userId}`;
+  try {
+    await deleteDoc(doc(db, 'users', userId));
+    return { success: true };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+    return { success: false, error };
+  }
 }
 
 export async function registerUser(name: string, descriptor: Float32Array) {

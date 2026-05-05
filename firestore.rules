@@ -57,7 +57,7 @@ service cloud.firestore {
       allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) &&
                     incoming().createdAt == resource.data.createdAt;
                     
-      allow delete: if false; // Only admin via console for now
+      allow delete: if isSignedIn();
     }
 
     match /attendance/{attendanceId} {

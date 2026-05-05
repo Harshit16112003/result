@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Shield, UserPlus, ScanEye, Users as UsersIcon, Settings, LayoutGrid, Info, Zap, LogOut, Activity, Database, AlertTriangle, Key, RefreshCw, Clock, CheckCircle } from 'lucide-react';
 import WebcamScanner from './components/WebcamScanner';
+import AdminPanel from './components/AdminPanel';
 import { loadModels, createMatcher } from './lib/faceService';
 import { useUsers, registerUser } from './hooks/useUsers';
 import { useAttendance, processAttendance } from './hooks/useAttendance';
@@ -9,7 +10,7 @@ import { auth } from './lib/firebase';
 import { signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
 import { UserFaceData } from './types';
 
-type Screen = 'dashboard' | 'register' | 'identify' | 'users' | 'verify' | 'attendance' | 'records';
+type Screen = 'dashboard' | 'register' | 'identify' | 'users' | 'verify' | 'attendance' | 'records' | 'admin';
 
 interface LogEntry {
   id: string;
@@ -196,7 +197,7 @@ export default function App() {
             <div className="absolute inset-0 rounded-2xl opacity-50 bg-[radial-gradient(circle_at_center,_#06b6d4_0%,_transparent_100%)] blur-md group-hover:blur-lg transition-all" />
             <ScanEye size={40} className="relative z-10" />
           </div>
-          <h1 className="text-3xl font-display font-bold mb-3 tracking-[0.3em] uppercase">NEURAL<span className="text-primary">SIGHT</span></h1>
+          <h1 className="text-3xl font-display font-bold mb-3 tracking-[0.3em] uppercase">NEURAL<span className="text-primary">ATTEND</span></h1>
           <p className="text-slate-400 text-sm mb-8 leading-relaxed">
             Neural Biometric Security Interface.<br />
             Authentication required to access sector 7 database.
@@ -213,8 +214,9 @@ export default function App() {
             )}
             {isLoggingIn ? 'Authorizing...' : 'Authorize Access'}
           </button>
-          <div className="mt-8 pt-8 border-t border-border/50 text-[10px] font-mono uppercase tracking-widest text-slate-500 opacity-50">
-            Secure Encryption Channel • v4.0.0
+          <div className="mt-8 pt-8 border-t border-border/50 text-[10px] font-mono uppercase tracking-widest text-slate-500 opacity-50 flex flex-col items-center gap-2">
+            <span>Secure Encryption Channel • v4.0.0</span>
+            <span className="lowercase text-primary opacity-60">harshitbhorgade</span>
           </div>
         </motion.div>
       </div>
@@ -229,7 +231,10 @@ export default function App() {
           <div className="w-8 h-8 bg-primary rounded flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.4)] ring-1 ring-white/20">
             <ScanEye size={18} className="text-[#050608]" />
           </div>
-          <span className="font-display font-bold tracking-[0.2em] text-sm uppercase">NEURAL<span className="text-primary font-light">SIGHT</span> <span className="text-[10px] text-primary/50 ml-1 tracking-normal font-mono">v4.0</span></span>
+          <div className="flex flex-col">
+            <span className="font-display font-bold tracking-[0.2em] text-sm uppercase">NEURAL<span className="text-primary font-light">ATTEND</span> <span className="text-[10px] text-primary/50 ml-1 tracking-normal font-mono">v4.0</span></span>
+            <span className="text-[8px] tracking-widest uppercase opacity-40 font-mono">harshitbhorgade</span>
+          </div>
         </div>
         
         <div className="hidden md:flex items-center gap-8 text-[10px] font-mono tracking-tighter uppercase opacity-60">
@@ -293,6 +298,12 @@ export default function App() {
                     className={`p-2 border rounded-md text-[9px] font-mono uppercase tracking-widest text-center transition-all ${screen === 'records' ? 'border-primary text-primary bg-primary/10' : 'border-border text-slate-400 hover:border-slate-500 hover:text-white'}`}
                   >
                     Attendance
+                  </button>
+                  <button 
+                    onClick={() => setScreen('admin')}
+                    className={`col-span-2 p-2 border rounded-md text-[9px] font-mono uppercase tracking-widest text-center transition-all ${screen === 'admin' ? 'border-primary text-primary bg-primary/10' : 'border-border text-slate-400 hover:border-slate-500 hover:text-white'}`}
+                  >
+                    Admin Control
                   </button>
                 </div>
               </div>
@@ -577,6 +588,16 @@ export default function App() {
                       </table>
                     </div>
                   </div>
+                </motion.div>
+              ) : screen === 'admin' ? (
+                <motion.div
+                  key="admin-panel"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="w-full h-full"
+                >
+                  <AdminPanel users={users} records={attendanceRecords} logs={logs} />
                 </motion.div>
               ) : (
                 <div className="text-center space-y-6 max-w-sm">
