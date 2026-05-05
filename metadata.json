@@ -1,0 +1,6 @@
+{
+  "name": "FaceID Pro",
+  "description": "Production-ready face detection and identification system with real-time recognition and user management.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": []
+}
