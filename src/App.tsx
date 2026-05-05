@@ -192,10 +192,11 @@ export default function App() {
           animate={{ opacity: 1, scale: 1 }}
           className="w-full max-w-md bg-surface border border-border rounded-2xl p-10 text-center shadow-2xl relative z-10"
         >
-          <div className="w-20 h-20 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-[0_0_30px_rgba(6,182,212,0.1)]">
-            <Shield size={40} />
+          <div className="w-20 h-20 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-[0_0_40px_rgba(6,182,212,0.15)] ring-1 ring-primary/20 relative group">
+            <div className="absolute inset-0 rounded-2xl opacity-50 bg-[radial-gradient(circle_at_center,_#06b6d4_0%,_transparent_100%)] blur-md group-hover:blur-lg transition-all" />
+            <ScanEye size={40} className="relative z-10" />
           </div>
-          <h1 className="text-2xl font-display font-bold mb-3 uppercase tracking-tight italic">FaceID<span className="text-primary not-italic">Pro</span></h1>
+          <h1 className="text-3xl font-display font-bold mb-3 tracking-[0.3em] uppercase">NEURAL<span className="text-primary">SIGHT</span></h1>
           <p className="text-slate-400 text-sm mb-8 leading-relaxed">
             Neural Biometric Security Interface.<br />
             Authentication required to access sector 7 database.
@@ -225,10 +226,10 @@ export default function App() {
       {/* Header */}
       <header className="h-14 border-b border-border flex items-center justify-between px-6 bg-surface/80 backdrop-blur-md z-50">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-primary rounded flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.5)]">
-            <Shield size={18} className="text-white" />
+          <div className="w-8 h-8 bg-primary rounded flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.4)] ring-1 ring-white/20">
+            <ScanEye size={18} className="text-[#050608]" />
           </div>
-          <span className="font-mono font-bold tracking-widest text-sm uppercase">NeuralSight <span className="text-primary tracking-normal">v4.0</span></span>
+          <span className="font-display font-bold tracking-[0.2em] text-sm uppercase">NEURAL<span className="text-primary font-light">SIGHT</span> <span className="text-[10px] text-primary/50 ml-1 tracking-normal font-mono">v4.0</span></span>
         </div>
         
         <div className="hidden md:flex items-center gap-8 text-[10px] font-mono tracking-tighter uppercase opacity-60">
