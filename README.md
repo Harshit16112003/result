@@ -1,4 +1,4 @@
-# FaceID Pro - Biometric Security System
+# NEURALATTEND - Biometric Security System
 
 A production-ready face detection and identification system built with React, Express, and Firebase.
 
